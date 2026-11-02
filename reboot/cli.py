@@ -1,4 +1,4 @@
-"""Typer CLI. P1 commands are read-only: doctor, devices, scan."""
+"""Typer CLI. Read-only: doctor, devices, scan, analyze, plan. Changes the phone: apply, restore."""
 
 from __future__ import annotations
 
@@ -12,9 +12,14 @@ from rich.table import Table
 
 from reboot.adb import Adb, find_adb
 from reboot.analyze import analyze_report
-from reboot.db import DatabaseError, load_database
+from reboot.apply import apply_plan
+from reboot.backup import BackupReadError, read_backup, utcnow
+from reboot.db import DatabaseError, Entry, load_database
 from reboot.device import DeviceEntry, DeviceError, parse_devices, select_device
+from reboot.names import InvalidPackageName
+from reboot.plan import assess, build_plan
 from reboot.report import build_report, write_report
+from reboot.restore import restorable_packages, restore_backup
 from reboot.scan import run_scan
 
 app = typer.Typer(
@@ -164,6 +169,146 @@ def analyze(
         console.print("[bold]Unknown (never offered for disabling):[/bold]")
         for name in result.unknown:
             console.print(f"  {name}")
+
+
+DbOpt = typer.Option(DEFAULT_DB, "--db", help="Package database directory.")
+
+
+def _load_db(db_dir: Path):
+    try:
+        return load_database(db_dir)
+    except DatabaseError as exc:
+        err.print("[red]package database is invalid:[/red]")
+        for problem in exc.problems:
+            err.print(f"  {problem}")
+        raise typer.Exit(2) from exc
+
+
+def _read_picks(picks: list[str], pick_file: Path | None) -> list[str]:
+    names = [p.strip() for p in picks]
+    if pick_file is not None:
+        try:
+            text = pick_file.read_text(encoding="utf-8-sig")
+        except OSError as exc:
+            err.print(f"[red]could not read {pick_file}:[/red] {exc}")
+            raise typer.Exit(2) from exc
+        for line in text.splitlines():
+            line = line.split("#", 1)[0].strip()
+            if line:
+                names.append(line)
+    return names
+
+
+@app.command()
+def plan(
+    pick: list[str] = typer.Option([], "--pick", "-p", help="Package to consider (repeatable)."),
+    pick_file: Path | None = typer.Option(
+        None, "--pick-file", help="File with one package per line."
+    ),
+    allow_advanced: bool = typer.Option(
+        False, "--allow-advanced", help="Also offer advanced tier."
+    ),
+    out: Path = typer.Option(Path("reboot-plan.json"), "--out", "-o", help="Plan file to write."),
+    adb_path: str | None = AdbPathOpt,
+    serial: str | None = SerialOpt,
+    db_dir: Path = DbOpt,
+) -> None:
+    """Dry run: show exactly what would be disabled and why the rest is skipped. Changes nothing."""
+    names = _read_picks(pick, pick_file)
+    if not names:
+        err.print("[red]nothing to plan:[/red] give packages with --pick or --pick-file.")
+        raise typer.Exit(2)
+    db = _load_db(db_dir)
+    adb = _require_adb(adb_path)
+    entry = _choose(adb, serial)
+    try:
+        a = assess(adb.with_serial(entry.serial), db, names, allow_advanced)
+    except InvalidPackageName as exc:
+        err.print(f"[red]{exc}[/red]")
+        raise typer.Exit(2) from exc
+    if a.blocked:
+        err.print(f"[red]cannot plan:[/red] {a.blocked}. Nothing was changed.")
+        raise typer.Exit(2)
+
+    for pkg, reason in a.skipped:
+        console.print(f"[yellow]skip[/yellow] {pkg}: {reason}")
+    if not a.eligible:
+        console.print("Nothing eligible to disable. No plan written.")
+        raise typer.Exit(1)
+    plan_doc = build_plan(a, allow_advanced, utcnow())
+    for act in plan_doc["actions"]:
+        console.print(f"[green]plan[/green] {act['package']} ({act['tier']}): {act['label']}")
+        console.print(f"  {act['command']}\n  undo: {act['restore_command']}", markup=False)
+    out.write_text(json.dumps(plan_doc, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    console.print(f"Dry run only. Plan written to {out}. Run `reboot apply {out}` to proceed.")
+
+
+@app.command()
+def apply(
+    plan_file: Path = typer.Argument(..., exists=True, dir_okay=False, help="A plan file."),
+    backup_dir: Path = typer.Option(Path("reboot-backups"), "--backup-dir"),
+    adb_path: str | None = AdbPathOpt,
+    db_dir: Path = DbOpt,
+) -> None:
+    """Disable the planned packages after per-package confirmation. Backs up first."""
+    try:
+        plan_doc = json.loads(plan_file.read_text(encoding="utf-8-sig"))
+        serial = plan_doc["device"]["serial"]
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        err.print(f"[red]could not read plan:[/red] {exc}")
+        raise typer.Exit(2) from exc
+    db = _load_db(db_dir)
+    adb = _require_adb(adb_path)
+    entry = _choose(adb, serial)
+
+    def confirm(e: Entry) -> bool:
+        console.print(f"\n[bold]{e.id}[/bold] ({e.tier}, confidence {e.confidence}): {e.label}")
+        console.print(f"  why: {e.why}\n  if disabled: {e.consequences}")
+        return typer.confirm("Disable this package?", default=False)
+
+    result = apply_plan(adb.with_serial(entry.serial), plan_doc, db, backup_dir, confirm)
+    for pkg, reason in result.skipped:
+        console.print(f"[yellow]skipped[/yellow] {pkg}: {reason}")
+    for pkg, status in result.outcomes.items():
+        console.print(f"{pkg}: {status}")
+    if result.backup:
+        console.print(f"backup: {result.backup}")
+        console.print(f"undo with: reboot restore {result.backup}")
+    if result.stopped:
+        err.print(f"[red]stopped:[/red] {result.stopped}")
+        raise typer.Exit(1)
+    console.print("[green]All confirmed packages were disabled and verified.[/green]")
+
+
+@app.command()
+def restore(
+    backup_file: Path = typer.Argument(..., exists=True, dir_okay=False, help="A backup record."),
+    adb_path: str | None = AdbPathOpt,
+) -> None:
+    """Re-enable only the packages this backup shows Reboot may have disabled."""
+    try:
+        record = read_backup(backup_file)
+    except BackupReadError as exc:
+        err.print(f"[red]{exc}[/red]")
+        raise typer.Exit(2) from exc
+    targets = restorable_packages(record)
+    if not targets:
+        console.print("Nothing to restore in this backup.")
+        return
+    adb = _require_adb(adb_path)
+    entry = _choose(adb, record["device"]["serial"])
+    console.print("Will re-enable:\n  " + "\n  ".join(targets))
+    if not typer.confirm("Restore these packages?", default=True):
+        raise typer.Exit(1)
+    result = restore_backup(adb.with_serial(entry.serial), record, backup_file)
+    for pkg, status in result.outcomes.items():
+        console.print(f"{pkg}: {status}")
+    for w in result.warnings:
+        err.print(f"[yellow]warning:[/yellow] {w}")
+    if result.stopped:
+        err.print(f"[red]stopped:[/red] {result.stopped}")
+        raise typer.Exit(1)
+    console.print("[green]All packages restored and verified.[/green]")
 
 
 if __name__ == "__main__":
