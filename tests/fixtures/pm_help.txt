@@ -1,0 +1,5 @@
+Package manager (package) commands:
+  help
+  list packages [-f] [-d] [-e] [-s] [-3] [--user USER_ID]
+  disable-user [--user USER_ID] PACKAGE_OR_COMPONENT
+  enable [--user USER_ID] PACKAGE_OR_COMPONENT
