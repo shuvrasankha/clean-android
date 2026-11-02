@@ -16,3 +16,4 @@ jobs:
       - run: ruff check .
       - run: ruff format --check .
       - run: pytest
+      - run: python tools/validate_db.py

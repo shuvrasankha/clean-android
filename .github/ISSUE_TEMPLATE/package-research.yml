@@ -1,0 +1,42 @@
+name: Package research
+description: Propose or correct a package database entry. Unknown stays unknown without evidence.
+labels: [database]
+body:
+  - type: input
+    id: package
+    attributes:
+      label: Package name
+      placeholder: com.example.app
+    validations:
+      required: true
+  - type: input
+    id: oem
+    attributes:
+      label: OEM family
+    validations:
+      required: true
+  - type: dropdown
+    id: tier
+    attributes:
+      label: Proposed tier
+      options: [keep, optional, advanced]
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: What it does and what disabling it changes
+    validations:
+      required: true
+  - type: textarea
+    id: sources
+    attributes:
+      label: Evidence
+      description: Links, or your own test ("device: model, Android version, what you observed").
+    validations:
+      required: true
+  - type: textarea
+    id: restore
+    attributes:
+      label: Did you restore it successfully?
+      description: Only entries tested on a physical phone are accepted for a new brand.

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -10,6 +11,8 @@ from rich.console import Console
 from rich.table import Table
 
 from reboot.adb import Adb, find_adb
+from reboot.analyze import analyze_report
+from reboot.db import DatabaseError, load_database
 from reboot.device import DeviceEntry, DeviceError, parse_devices, select_device
 from reboot.report import build_report, write_report
 from reboot.scan import run_scan
@@ -113,6 +116,54 @@ def scan(
             f"[yellow]{len(result.errors)} field(s) unsupported or failed; see report.[/yellow]"
         )
     console.print(f"report written to {out}")
+
+
+DEFAULT_DB = Path(__file__).resolve().parent.parent / "data" / "packages"
+
+
+@app.command()
+def analyze(
+    report_file: Path = typer.Argument(..., exists=True, dir_okay=False, help="A scan report."),
+    db_dir: Path = typer.Option(DEFAULT_DB, "--db", help="Package database directory."),
+) -> None:
+    """Join a scan report with the package database. Offline; never touches a phone."""
+    try:
+        report = json.loads(report_file.read_text(encoding="utf-8"))
+        db = load_database(db_dir)
+    except (OSError, ValueError) as exc:
+        err.print(f"[red]could not read report:[/red] {exc}")
+        raise typer.Exit(2) from exc
+    except DatabaseError as exc:
+        err.print("[red]package database is invalid:[/red]")
+        for problem in exc.problems:
+            err.print(f"  {problem}")
+        raise typer.Exit(2) from exc
+
+    result = analyze_report(report, db)
+    dev = report.get("device", {})
+    console.print(
+        f"{dev.get('manufacturer')} {dev.get('model')}, Android {dev.get('android_release')}"
+    )
+    if result.android_major is None:
+        console.print(
+            "[yellow]Android version unknown: version-limited entries count as unknown.[/yellow]"
+        )
+    console.print(
+        f"protected {len(result.protected)}, "
+        + ", ".join(f"{t} {len(rows)}" for t, rows in result.by_tier.items())
+        + f", unknown {len(result.unknown)} (system); user apps {result.user_app_count}"
+    )
+    for tier, rows in result.by_tier.items():
+        if not rows:
+            continue
+        table = Table("package", "state", "confidence", "label", title=tier)
+        for r in rows:
+            table.add_row(r.entry.id, r.state, r.entry.confidence, r.entry.label)
+        console.print(table)
+    if result.unknown:
+        console.print("[bold]Unknown (never offered for disabling):[/bold]")
+        for name in result.unknown:
+            console.print(f"  {name}")
 
 
 if __name__ == "__main__":

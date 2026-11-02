@@ -1,0 +1,125 @@
+# Protected packages shared by every OEM. Never offered for disabling.
+# Not listed: the "android" framework package. Its name has no dot, so it cannot pass package-name
+# validation and can never enter a command; guards.py must still treat it as protected.
+# Sources are upstream documentation; re-check the URLs when reviewing.
+
+- id: com.android.systemui
+  oem: common
+  label: System UI
+  tier: keep
+  why: Draws the status bar, notification shade, lock screen and navigation
+  consequences: The phone may show no usable interface
+  sources: ["https://android.googlesource.com/platform/frameworks/base/+/refs/heads/main/packages/SystemUI"]
+  confidence: high
+  reviewed: 2026-11-02
+  protected: true
+
+- id: com.android.settings
+  oem: common
+  label: Settings
+  tier: keep
+  why: The Settings app; also needed to re-enable anything from the phone itself
+  consequences: Cannot change settings or manage apps on the phone
+  sources: ["https://android.googlesource.com/platform/packages/apps/Settings"]
+  confidence: high
+  reviewed: 2026-11-02
+  protected: true
+
+- id: com.android.providers.settings
+  oem: common
+  label: Settings Storage
+  tier: keep
+  why: Stores the system, secure and global settings values
+  consequences: Settings are lost or unreadable; the phone may fail to boot properly
+  sources: ["https://android.googlesource.com/platform/frameworks/base/+/refs/heads/main/packages/SettingsProvider"]
+  confidence: high
+  reviewed: 2026-11-02
+  protected: true
+
+- id: com.android.phone
+  oem: common
+  label: Phone services (telephony)
+  tier: keep
+  why: Telephony stack for calls, mobile data and SIM handling
+  consequences: Calls, SMS and mobile data stop working
+  sources: ["https://android.googlesource.com/platform/packages/services/Telephony"]
+  confidence: high
+  reviewed: 2026-11-02
+  protected: true
+
+- id: com.android.providers.telephony
+  oem: common
+  label: Telephony Storage
+  tier: keep
+  why: Stores SMS, MMS and mobile network configuration
+  consequences: Messaging and mobile data configuration break
+  sources: ["https://android.googlesource.com/platform/packages/providers/TelephonyProvider"]
+  confidence: high
+  reviewed: 2026-11-02
+  protected: true
+
+- id: com.android.server.telecom
+  oem: common
+  label: Telecom
+  tier: keep
+  why: Routes and manages calls between the dialer and the telephony stack
+  consequences: Calls cannot be placed or received
+  sources: ["https://android.googlesource.com/platform/packages/services/Telecomm"]
+  confidence: high
+  reviewed: 2026-11-02
+  protected: true
+
+- id: com.google.android.gms
+  oem: common
+  label: Google Play services
+  tier: keep
+  why: Provides sign-in, push notifications, location and APIs that many apps depend on
+  consequences: Many apps crash or lose notifications, location and sign-in
+  sources: ["https://developers.google.com/android/guides/overview"]
+  confidence: high
+  reviewed: 2026-11-02
+  protected: true
+
+- id: com.google.android.gsf
+  oem: common
+  label: Google Services Framework
+  tier: keep
+  why: Companion to Play services for account sync and device registration
+  consequences: Google account sync and Play Store may stop working
+  sources: ["https://developers.google.com/android/guides/overview"]
+  confidence: medium
+  reviewed: 2026-11-02
+  protected: true
+
+- id: com.android.vending
+  oem: common
+  label: Google Play Store
+  tier: keep
+  why: Installs and updates apps
+  consequences: Cannot install or update apps from Play
+  sources: ["https://developer.android.com/distribute/google-play"]
+  confidence: high
+  reviewed: 2026-11-02
+  protected: true
+
+- id: com.google.android.webview
+  oem: common
+  label: Android System WebView (Google)
+  tier: keep
+  why: Renders web content inside many apps
+  consequences: Apps that show web content crash or show blank pages
+  sources: ["https://developer.android.com/guide/webapps/webview"]
+  confidence: high
+  reviewed: 2026-11-02
+  protected: true
+
+- id: com.android.webview
+  oem: common
+  label: Android System WebView (AOSP)
+  tier: keep
+  why: Renders web content inside many apps on devices that ship the AOSP WebView
+  consequences: Apps that show web content crash or show blank pages
+  sources: ["https://developer.android.com/guide/webapps/webview"]
+  confidence: medium
+  reviewed: 2026-11-02
+  protected: true

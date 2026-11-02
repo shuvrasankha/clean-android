@@ -13,4 +13,9 @@ reboot devices
 reboot scan --out reboot-scan.json
 ```
 
+`reboot analyze reboot-scan.json` joins a scan with `data/packages/` (offline) and lists protected,
+known and unknown packages. Only `common.yaml` (protected packages) is populated: no brand entries are
+added until they are researched and tested on a physical phone. Validate with
+`python tools/validate_db.py`.
+
 Serial numbers are redacted from reports unless you pass `--include-serial`.

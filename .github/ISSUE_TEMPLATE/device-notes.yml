@@ -1,0 +1,22 @@
+name: Device notes
+description: Report how a phone model behaves (scan results, quirks, settings toggles needed).
+labels: [device]
+body:
+  - type: input
+    id: model
+    attributes:
+      label: Brand, model and Android version
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: What happened
+      description: Attach a scan report only after checking it for anything personal. Serials are redacted by default.
+    validations:
+      required: true
+  - type: textarea
+    id: quirks
+    attributes:
+      label: Quirks
+      description: For example an extra security toggle needed before adb can change apps.
